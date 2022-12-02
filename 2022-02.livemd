@@ -1,0 +1,112 @@
+# 2022-02
+
+```elixir
+Mix.install([:kino])
+```
+
+## Input
+
+```elixir
+input =
+  "2022-02.input"
+  |> Path.expand(__DIR__)
+  |> File.stream!()
+  |> Stream.map(fn str ->
+    str |> String.trim() |> String.split(" ", parts: 2)
+  end)
+```
+
+```elixir
+defmodule Scorer do
+  @beats %{
+    paper: :rock,
+    rock: :scissors,
+    scissors: :paper
+  }
+  @scores %{
+    rock: 1,
+    paper: 2,
+    scissors: 3,
+    loss: 0,
+    draw: 3,
+    win: 6
+  }
+
+  def outcome_for_plays(opponent, play) do
+    cond do
+      @beats[play] == opponent ->
+        :win
+
+      @beats[opponent] == play ->
+        :loss
+
+      true ->
+        :draw
+    end
+  end
+
+  def play_for(opponent, target_outcome)
+  def play_for(opponent, :draw), do: opponent
+  def play_for(:rock, :win), do: :paper
+  def play_for(:rock, :loss), do: :scissors
+  def play_for(:paper, :win), do: :scissors
+  def play_for(:paper, :loss), do: :rock
+  def play_for(:scissors, :win), do: :rock
+  def play_for(:scissors, :loss), do: :paper
+
+  def score_outcome_and_play(outcome, play) do
+    @scores[play] + @scores[outcome]
+  end
+end
+```
+
+<!-- livebook:{"branch_parent_index":0} -->
+
+## Part 1
+
+```elixir
+codes = %{
+  "A" => :rock,
+  "B" => :paper,
+  "C" => :scissors,
+  "X" => :rock,
+  "Y" => :paper,
+  "Z" => :scissors
+}
+
+input
+|> Stream.map(fn [opponent, me] ->
+  {codes[opponent], codes[me]}
+end)
+|> Stream.map(fn {opponent, me} ->
+  Scorer.outcome_for_plays(opponent, me)
+  |> Scorer.score_outcome_and_play(me)
+end)
+|> Enum.sum()
+```
+
+<!-- livebook:{"branch_parent_index":0} -->
+
+## Part 2
+
+```elixir
+codes = %{
+  "A" => :rock,
+  "B" => :paper,
+  "C" => :scissors,
+  "X" => :loss,
+  "Y" => :draw,
+  "Z" => :win
+}
+
+input
+|> Stream.map(fn [opponent, me] ->
+  {opponent, target_outcome} = {codes[opponent], codes[me]}
+  {opponent, Scorer.play_for(opponent, target_outcome)}
+end)
+|> Stream.map(fn {opponent, me} ->
+  Scorer.outcome_for_plays(opponent, me)
+  |> Scorer.score_outcome_and_play(me)
+end)
+|> Enum.sum()
+```
