@@ -1,0 +1,80 @@
+# 2022-03
+
+```elixir
+Mix.install([:kino])
+```
+
+## Input
+
+```elixir
+input =
+  "2022-03.input"
+  |> File.stream!()
+  |> Stream.map(&String.trim/1)
+```
+
+```elixir
+defmodule Rucksack do
+  @letters String.graphemes("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ")
+  @priority @letters
+            |> Enum.with_index(1)
+            |> Map.new()
+
+  def find_common_items(rucksacks) do
+    Enum.reduce(rucksacks, MapSet.new(@letters), fn line, common ->
+      {left, right} = parse_line(line)
+
+      left
+      |> MapSet.union(right)
+      |> MapSet.intersection(common)
+    end)
+    |> MapSet.to_list()
+  end
+
+  def find_misplaced_item(line) do
+    {left, right} = parse_line(line)
+
+    left
+    |> MapSet.intersection(right)
+    |> Enum.at(0)
+  end
+
+  def parse_compartment(compartment) do
+    MapSet.new(compartment)
+  end
+
+  def parse_line(line) do
+    count = String.length(line)
+
+    {left, right} =
+      line
+      |> String.graphemes()
+      |> Enum.split(div(count, 2))
+
+    {parse_compartment(left), parse_compartment(right)}
+  end
+
+  def priority(item), do: Map.fetch!(@priority, item)
+end
+```
+
+<!-- livebook:{"branch_parent_index":0} -->
+
+## Part 1
+
+```elixir
+input
+|> Stream.map(&Rucksack.find_misplaced_item/1)
+|> Stream.map(&Rucksack.priority/1)
+|> Enum.sum()
+```
+
+## Part 2
+
+```elixir
+input
+|> Stream.chunk_every(3)
+|> Stream.map(&Rucksack.find_common_items/1)
+|> Stream.map(fn [letter] -> Rucksack.priority(letter) end)
+|> Enum.sum()
+```
