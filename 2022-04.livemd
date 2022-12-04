@@ -1,0 +1,45 @@
+# 2022-04
+
+```elixir
+Mix.install([:kino, :nimble_parsec])
+```
+
+## Input
+
+```elixir
+input =
+  "2022-04.input"
+  |> Path.expand(__DIR__)
+  |> File.stream!()
+  |> Stream.map(&String.trim/1)
+  |> Stream.map(fn line ->
+    [left_min, left_max, right_min, right_max] =
+      String.split(line, ~r/[-,]/, parts: 4) |> Enum.map(&String.to_integer/1)
+
+    {left_min..left_max, right_min..right_max}
+  end)
+```
+
+<!-- livebook:{"branch_parent_index":0} -->
+
+## Part 1
+
+```elixir
+input
+|> Stream.filter(fn {left, right} ->
+  left = MapSet.new(left)
+  right = MapSet.new(right)
+  MapSet.subset?(left, right) or MapSet.subset?(right, left)
+end)
+|> Enum.count()
+```
+
+<!-- livebook:{"branch_parent_index":0} -->
+
+## Part 2
+
+```elixir
+Enum.count(input, fn {left, right} ->
+  !Range.disjoint?(left, right)
+end)
+```
