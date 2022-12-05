@@ -1,0 +1,216 @@
+# 2022-05
+
+```elixir
+Mix.install([:kino, :nimble_parsec])
+```
+
+## Input
+
+```elixir
+input =
+  "2022-05.input"
+  |> Path.expand(__DIR__)
+  |> File.read!()
+```
+
+## Parser
+
+```elixir
+defmodule Parser do
+  import NimbleParsec
+
+  cargo_delim = ignore(ascii_char([?[, ?]]))
+  cargo_label = ascii_char([?A..?Z]) |> tag(:cargo)
+  cargo_crate = cargo_delim |> concat(cargo_label) |> concat(cargo_delim) |> label("cargo crate")
+  empty_space = string("   ") |> replace(:empty) |> label("empty column")
+
+  whitespace_delim =
+    ascii_char(' ') |> optional() |> ignore() |> label("optional whitespace delimiter")
+
+  newline_delim =
+    ascii_char('\n') |> optional() |> ignore() |> label("optional newline delimiter")
+
+  cargo_slot =
+    choice([cargo_crate, empty_space]) |> concat(whitespace_delim) |> label("cargo slot")
+
+  cargo_row = cargo_slot |> times(min: 1) |> concat(newline_delim) |> label("cargo row")
+
+  stack_label =
+    ascii_char(' ')
+    |> ignore()
+    |> integer(1)
+    # |> unwrap_and_tag(:label)
+    |> concat(ignore(ascii_char(' ')))
+    |> label("cargo stack")
+
+  label_row =
+    stack_label
+    |> concat(whitespace_delim)
+    |> times(min: 1)
+    |> concat(newline_delim)
+    |> label("row of stack labels")
+
+  move_quantity = integer(min: 1, max: 2) |> unwrap_and_tag(:quantity) |> label("move quantity")
+  move_column = integer(1) |> label("stack label")
+
+  move_step =
+    ignore(string("move "))
+    |> concat(move_quantity)
+    |> concat(ignore(string(" from ")))
+    |> concat(unwrap_and_tag(move_column, :from))
+    |> concat(ignore(string(" to ")))
+    |> concat(unwrap_and_tag(move_column, :to))
+    |> tag(:move)
+    |> concat(newline_delim)
+    |> label("move instruction")
+
+  cargo_rows =
+    cargo_row |> tag(:row) |> times(min: 1) |> tag(:cargo) |> label("diagram of cargo rows")
+
+  input_file =
+    cargo_rows
+    |> concat(tag(label_row, :labels))
+    |> concat(duplicate(newline_delim, 2))
+    |> concat(tag(times(move_step, min: 1), :moves))
+
+  defparsec(:cargo_crate, cargo_crate, export_combinator: true)
+  defparsec(:cargo_row, cargo_row)
+  defparsec(:label_row, label_row)
+  defparsec(:move_step, move_step)
+  defparsec(:input_file, input_file)
+end
+```
+
+```elixir
+ExUnit.start(autorun: false)
+
+defmodule Parser.Test do
+  use ExUnit.Case, async: true
+
+  describe "cargo_crate" do
+    test "parses delimited capital letter" do
+      assert {:ok, crates, "" = _rest, %{} = _context, _line, _column} = Parser.cargo_crate("[A]")
+      assert crates == [cargo: 'A']
+    end
+  end
+
+  describe "cargo_row" do
+    test "parses series of delimited capital letters" do
+      assert {:ok, crates, "" = _rest, %{} = _context, _line, _column} =
+               Parser.cargo_row("[A] [B] [C]")
+
+      assert crates == [cargo: 'A', cargo: 'B', cargo: 'C']
+    end
+
+    test "handles gaps between crates" do
+      assert {:ok, crates, "" = _rest, %{} = _context, _line, _column} =
+               Parser.cargo_row("[A]     [C]")
+
+      assert crates == [{:cargo, 'A'}, :empty, {:cargo, 'C'}]
+    end
+  end
+
+  describe "label_row" do
+    test "parses series of space-delimited integers" do
+      assert {:ok, labels, "" = _rest, %{} = _context, _line, _column} =
+               Parser.label_row(" 1   2   3   4   5   6   7   8   9 ")
+
+      assert labels == Enum.to_list(1..9)
+    end
+  end
+
+  describe "move_step" do
+    test "parses quantity and columns" do
+      assert {:ok, move, "" = _rest, %{} = _context, _line, _column} =
+               Parser.move_step("move 27 from 1 to 2")
+
+      assert move == [{:move, [quantity: 27, from: 1, to: 2]}]
+    end
+  end
+
+  describe "input_file" do
+    @example """
+        [D]    
+    [N] [C]    
+    [Z] [M] [P]
+     1   2   3 
+
+    move 1 from 2 to 1
+    move 3 from 1 to 3
+    move 2 from 2 to 1
+    move 1 from 1 to 2
+    """
+    test "parses input file format" do
+      assert {:ok, _input, "" = _rest, %{} = _context, _line, _column} =
+               Parser.input_file(@example)
+
+      # IO.inspect(input)
+    end
+  end
+end
+
+# ExUnit.configure(trace: true)
+ExUnit.configure(timeout: 5_000)
+ExUnit.run()
+```
+
+```elixir
+defmodule Cargo do
+  def apply_moves(%{pending_moves: moves, stacks: stacks}) do
+    Enum.reduce(moves, stacks, fn
+      %{from: from, quantity: qty, to: to}, stacks ->
+        {popped, stacks} =
+          Map.get_and_update!(stacks, from, fn current ->
+            :lists.split(qty, current)
+          end)
+
+        Map.update!(stacks, to, fn crates ->
+          popped
+          |> :lists.reverse()
+          |> :lists.append(crates)
+        end)
+    end)
+  end
+
+  def from_parsed(plan) do
+    cargo = Keyword.fetch!(plan, :cargo)
+    _labels = Keyword.get(plan, :labels)
+    moves = plan |> Keyword.fetch!(:moves) |> Enum.map(&parse_move/1)
+
+    %{stacks: stacks(cargo), pending_moves: moves}
+  end
+
+  def parse_move({:move, kw}), do: Map.new(kw)
+
+  def stacks(cargo) do
+    for row <- Keyword.get_values(cargo, :row),
+        {content, column} <- Enum.with_index(row, 1),
+        reduce: %{} do
+      acc ->
+        case content do
+          :empty ->
+            acc
+
+          {:cargo, letter} ->
+            update_in(acc, [Access.key(column, [])], &[letter | &1])
+        end
+    end
+    |> Map.new(fn {column, crates} -> {column, :lists.reverse(crates)} end)
+  end
+end
+```
+
+<!-- livebook:{"branch_parent_index":1} -->
+
+## Part 1
+
+```elixir
+{:ok, plan, "" = _rest, %{} = _context, _line, _column} = Parser.input_file(input)
+
+plan
+|> Cargo.from_parsed()
+|> Cargo.apply_moves()
+|> Stream.map(fn {col, stack} -> {col, hd(stack)} end)
+|> Enum.sort()
+|> Enum.map_join("", &elem(&1, 1))
+```
