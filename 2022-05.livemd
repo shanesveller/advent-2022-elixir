@@ -156,7 +156,7 @@ ExUnit.run()
 
 ```elixir
 defmodule Cargo do
-  def apply_moves(%{pending_moves: moves, stacks: stacks}) do
+  def apply_moves(%{pending_moves: moves, stacks: stacks}, crane_type \\ 9000) do
     Enum.reduce(moves, stacks, fn
       %{from: from, quantity: qty, to: to}, stacks ->
         {popped, stacks} =
@@ -165,8 +165,13 @@ defmodule Cargo do
           end)
 
         Map.update!(stacks, to, fn crates ->
-          popped
-          |> :lists.reverse()
+          case crane_type do
+            9000 ->
+              :lists.reverse(popped)
+
+            9001 ->
+              popped
+          end
           |> :lists.append(crates)
         end)
     end)
@@ -197,6 +202,13 @@ defmodule Cargo do
     end
     |> Map.new(fn {column, crates} -> {column, :lists.reverse(crates)} end)
   end
+
+  def top_of_stacks(stacks) do
+    stacks
+    |> Stream.map(fn {col, stack} -> {col, hd(stack)} end)
+    |> Enum.sort()
+    |> Enum.map_join("", &elem(&1, 1))
+  end
 end
 ```
 
@@ -210,7 +222,18 @@ end
 plan
 |> Cargo.from_parsed()
 |> Cargo.apply_moves()
-|> Stream.map(fn {col, stack} -> {col, hd(stack)} end)
-|> Enum.sort()
-|> Enum.map_join("", &elem(&1, 1))
+|> Cargo.top_of_stacks()
+```
+
+<!-- livebook:{"branch_parent_index":1} -->
+
+## Part 2
+
+```elixir
+{:ok, plan, "" = _rest, %{} = _context, _line, _column} = Parser.input_file(input)
+
+plan
+|> Cargo.from_parsed()
+|> Cargo.apply_moves(_crane_type = 9001)
+|> Cargo.top_of_stacks()
 ```
