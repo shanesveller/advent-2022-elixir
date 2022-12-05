@@ -185,6 +185,11 @@ defmodule Cargo do
     %{stacks: stacks(cargo), pending_moves: moves}
   end
 
+  def parse(str) do
+    {:ok, plan, "" = _rest, %{} = _context, _line, _column} = Parser.input_file(str)
+    from_parsed(plan)
+  end
+
   def parse_move({:move, kw}), do: Map.new(kw)
 
   def stacks(cargo) do
@@ -217,10 +222,8 @@ end
 ## Part 1
 
 ```elixir
-{:ok, plan, "" = _rest, %{} = _context, _line, _column} = Parser.input_file(input)
-
-plan
-|> Cargo.from_parsed()
+input
+|> Cargo.parse()
 |> Cargo.apply_moves()
 |> Cargo.top_of_stacks()
 ```
@@ -230,10 +233,8 @@ plan
 ## Part 2
 
 ```elixir
-{:ok, plan, "" = _rest, %{} = _context, _line, _column} = Parser.input_file(input)
-
-plan
-|> Cargo.from_parsed()
+input
+|> Cargo.parse()
 |> Cargo.apply_moves(_crane_type = 9001)
 |> Cargo.top_of_stacks()
 ```
