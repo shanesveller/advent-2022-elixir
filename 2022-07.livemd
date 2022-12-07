@@ -1,0 +1,269 @@
+# 2022-07
+
+```elixir
+Mix.install([:kino])
+```
+
+## Input
+
+```elixir
+defmodule Parser do
+  def command_history(lines) do
+    lines
+    |> Stream.chunk_while(
+      [],
+      fn elem, acc ->
+        if acc == [] do
+          {:cont, [elem]}
+        else
+          if String.starts_with?(elem, "$ ") do
+            {:cont, :lists.reverse(acc), [elem]}
+          else
+            {:cont, [elem | acc]}
+          end
+        end
+      end,
+      fn acc ->
+        {:cont, :lists.reverse(acc), []}
+      end
+    )
+    |> Stream.map(fn lines ->
+      [command | output] = lines
+      {command, output}
+    end)
+    |> Enum.reduce(%{cwd: [], filesystem: %{}}, fn {command, output}, knowledge ->
+      case command do
+        "$ cd .." ->
+          Map.update!(knowledge, :cwd, &tl(&1))
+
+        "$ cd " <> path ->
+          Map.update!(knowledge, :cwd, &[path | &1])
+
+        "$ ls" ->
+          output
+          |> Map.new(&ls_output/1)
+          |> then(&put_in(knowledge, [:filesystem] ++ :lists.reverse(knowledge.cwd), &1))
+
+        _ ->
+          knowledge
+      end
+    end)
+  end
+
+  def ls_output(output_line) do
+    case String.split(output_line, " ", parts: 2) do
+      ["dir", name] ->
+        {name, %{}}
+
+      [size, filename] ->
+        {filename, String.to_integer(size)}
+    end
+  end
+end
+```
+
+```elixir
+ExUnit.start(autorun: false)
+
+defmodule Parser.Test do
+  use ExUnit.Case, async: true
+
+  describe "command_history" do
+    @example """
+    $ cd /
+    $ ls
+    dir a
+    14848514 b.txt
+    8504156 c.dat
+    dir d
+    $ cd a
+    $ ls
+    dir e
+    29116 f
+    2557 g
+    62596 h.lst
+    $ cd e
+    $ ls
+    584 i
+    $ cd ..
+    $ cd ..
+    $ cd d
+    $ ls
+    4060174 j
+    8033020 d.log
+    5626152 d.ext
+    7214296 k
+    """
+    test "reads complete output sequence" do
+      %{cwd: _cwd, filesystem: fs} =
+        @example |> String.trim() |> String.split("\n") |> Parser.command_history()
+
+      assert get_in(fs, ["/", "a", "e", "i"]) == 584
+      assert get_in(fs, ["/", "d", "k"]) == 7_214_296
+    end
+  end
+end
+```
+
+```elixir
+defmodule FileSystem do
+  def directories(knowledge, base_path \\ []) do
+    knowledge
+    |> do_directories(base_path)
+    |> Stream.filter(&(&1 != []))
+    |> Enum.sort()
+  end
+
+  defp do_directories(knowledge, base_path) do
+    Enum.reduce(knowledge, [base_path], fn el, dirs ->
+      case el do
+        {_name, []} ->
+          dirs
+
+        {name, content} when is_map(content) ->
+          do_directories(content, List.insert_at(base_path, -1, name)) ++ dirs
+
+        {_name, size} when is_integer(size) ->
+          dirs
+      end
+    end)
+  end
+
+  def size_of(tree) when is_map(tree) do
+    Enum.reduce(tree, 0, &(size_of(&1) + &2))
+  end
+
+  def size_of({_filename, tree}) when is_map(tree), do: size_of(tree)
+
+  def size_of({_filename, size}) when is_integer(size), do: size
+
+  def size_of(size) when is_integer(size), do: size
+
+  def total_size_of(knowledge, path) do
+    knowledge
+    |> get_in(path)
+    |> size_of()
+  end
+end
+```
+
+```elixir
+defmodule FileSystem.Test do
+  use ExUnit.Case, async: true
+
+  @example """
+  $ cd /
+  $ ls
+  dir a
+  14848514 b.txt
+  8504156 c.dat
+  dir d
+  $ cd a
+  $ ls
+  dir e
+  29116 f
+  2557 g
+  62596 h.lst
+  $ cd e
+  $ ls
+  584 i
+  $ cd ..
+  $ cd ..
+  $ cd d
+  $ ls
+  4060174 j
+  8033020 d.log
+  5626152 d.ext
+  7214296 k
+  """
+
+  describe "directories" do
+    test "lists directories by path" do
+      input =
+        @example
+        |> String.trim()
+        |> String.split("\n")
+        |> Parser.command_history()
+        |> Map.fetch!(:filesystem)
+
+      dirs = FileSystem.directories(input)
+
+      assert Enum.sort(dirs) == dirs
+
+      assert ["/", "a"] in dirs
+      assert ["/", "a", "e"] in dirs
+      assert ["/", "d"] in dirs
+    end
+  end
+
+  describe "total_size_of/2" do
+    test "recursively sums sizes" do
+      input =
+        @example
+        |> String.trim()
+        |> String.split("\n")
+        |> Parser.command_history()
+        |> Map.fetch!(:filesystem)
+
+      assert FileSystem.total_size_of(input, ["/", "a", "e"]) == 584
+      assert FileSystem.total_size_of(input, ["/", "a"]) == 94_853
+      assert FileSystem.total_size_of(input, ["/", "d"]) == 24_933_642
+      assert FileSystem.total_size_of(input, ["/"]) == 48_381_165
+    end
+  end
+end
+```
+
+```elixir
+# ExUnit.configure(trace: true)
+ExUnit.configure(timeout: 5_000)
+ExUnit.run()
+```
+
+```elixir
+input =
+  "2022-07.input"
+  |> Path.expand(__DIR__)
+  |> File.stream!()
+  |> Stream.map(&String.trim_trailing/1)
+```
+
+<!-- livebook:{"branch_parent_index":0} -->
+
+## Part 1
+
+```elixir
+input
+|> Parser.command_history()
+|> Map.fetch!(:filesystem)
+|> then(fn fs ->
+  fs
+  |> FileSystem.directories()
+  |> Stream.map(&FileSystem.total_size_of(fs, &1))
+  |> Stream.filter(&(&1 <= 100_000))
+  |> Enum.sum()
+end)
+```
+
+<!-- livebook:{"branch_parent_index":0} -->
+
+## Part 2
+
+```elixir
+total_size = 70_000_000
+min_free = 30_000_000
+
+fs =
+  input
+  |> Parser.command_history()
+  |> Map.fetch!(:filesystem)
+
+current = total_size - FileSystem.total_size_of(fs, ["/"])
+need_freed = min_free - current
+
+fs
+|> FileSystem.directories()
+|> Stream.map(&FileSystem.total_size_of(fs, &1))
+|> Stream.filter(&(&1 >= need_freed))
+|> Enum.min()
+```
