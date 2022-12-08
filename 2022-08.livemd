@@ -7,14 +7,6 @@ Mix.install([:kino])
 ## Input
 
 ```elixir
-input =
-  "2022-08.input"
-  |> Path.expand(__DIR__)
-  |> File.read!()
-  |> String.split("\n", trim: true)
-```
-
-```elixir
 defmodule Parser do
   defmodule Grid do
     defstruct [:xs, :ys, :height, :width]
@@ -24,9 +16,7 @@ defmodule Parser do
     {xs, ys} =
       for {line, y} <- Stream.with_index(input),
           {char, x} <- Stream.with_index(String.graphemes(line)),
-          char != "\n",
-          # {xs, ys}
-          reduce: {%{}, %{}} do
+          reduce: {_xs = %{}, _ys = %{}} do
         acc ->
           digit = String.to_integer(char)
 
@@ -49,40 +39,11 @@ end
 ```
 
 ```elixir
-ExUnit.start(autorun: false)
-```
-
-```elixir
-defmodule Parser.Test do
-  use ExUnit.Case, async: true
-
-  alias Parser.Grid
-
-  @example """
-  30373
-  25512
-  65332
-  33549
-  35390
-  """
-
-  describe "parse_grid" do
-    test "captures rows and columns" do
-      assert %Grid{xs: xs, ys: ys} =
-               @example |> String.split("\n", trim: true) |> Parser.parse_grid()
-
-      assert Map.fetch!(xs, 0) == [3, 2, 6, 3, 3]
-      assert Map.fetch!(xs, 4) == [3, 2, 2, 9, 0]
-      assert Map.fetch!(ys, 0) == [3, 0, 3, 7, 3]
-      assert Map.fetch!(ys, 4) == [3, 5, 3, 9, 0]
-    end
-
-    test "captures width and height" do
-      assert %Grid{height: 5, width: 5} =
-               @example |> String.split("\n", trim: true) |> Parser.parse_grid()
-    end
-  end
-end
+input =
+  "2022-08.input"
+  |> Path.expand(__DIR__)
+  |> File.read!()
+  |> String.split("\n", trim: true)
 ```
 
 <!-- livebook:{"branch_parent_index":0} -->
@@ -151,16 +112,120 @@ end
 ```
 
 ```elixir
-sequence = [3, 0, 3, 7, 3]
-sequence = [3, 7, 3, 0, 3]
+input
+|> Parser.parse_grid()
+|> Part1.count_visible_trees()
+```
 
-sequence
-|> Enum.reduce({_elems = [], _max = 0}, fn
-  elem, {elems, max} when elem > max -> {[true | elems], elem}
-  _elem, {elems, max} -> {[false | elems], max}
+<!-- livebook:{"branch_parent_index":0} -->
+
+## Part 2
+
+```elixir
+defmodule Part2 do
+  def scenic_score(grid, x, y) do
+    [:up, :right, :down, :left]
+    |> Enum.map(&viewing_distance(grid, x, y, &1))
+    |> Enum.product()
+  end
+
+  def contiguous_view_distance([], _height), do: 0
+
+  def contiguous_view_distance(sequence, height) do
+    sequence
+    |> Enum.reduce({_count = 0, _max = 0}, fn
+      _elem, {count, :halt} -> {count, :halt}
+      elem, {count, _max} when elem >= height -> {count + 1, :halt}
+      # elem, {count, max} when elem > max and max <= height -> {count + 1, elem}
+      elem, {count, max} -> {count + 1, max(elem, max)}
+    end)
+    |> elem(0)
+  end
+
+  def viewing_distance(grid, x, y, dir) when dir in [:up, :down] do
+    col = Map.fetch!(grid.xs, x)
+    height = Enum.at(col, y)
+    range = if dir == :up, do: 0..(y - 1), else: (y + 1)..-1
+
+    col
+    |> Enum.slice(range)
+    |> maybe_reverse(dir == :up)
+    |> contiguous_view_distance(height)
+  end
+
+  def viewing_distance(grid, x, y, dir) when dir in [:left, :right] do
+    row = Map.fetch!(grid.ys, y)
+    height = Enum.at(row, x)
+    range = if dir == :left, do: 0..(x - 1), else: (x + 1)..-1
+
+    row
+    |> Enum.slice(range)
+    |> maybe_reverse(dir == :left)
+    |> contiguous_view_distance(height)
+  end
+
+  defp maybe_reverse(list, pred)
+  defp maybe_reverse(list, false), do: list
+  defp maybe_reverse(list, true), do: :lists.reverse(list)
+end
+```
+
+```elixir
+Part2.contiguous_view_distance([4, 9], 5)
+```
+
+```elixir
+input
+|> Parser.parse_grid()
+|> then(fn %{height: height, width: width} = grid ->
+  for x <- 0..(width - 1),
+      y <- 0..(height - 1),
+      reduce: 0 do
+    acc ->
+      max(acc, Part2.scenic_score(grid, x, y))
+  end
 end)
-|> elem(0)
-|> :lists.reverse()
+```
+
+<!-- livebook:{"branch_parent_index":0} -->
+
+## Tests
+
+```elixir
+ExUnit.start(autorun: false)
+```
+
+```elixir
+defmodule Parser.Test do
+  use ExUnit.Case, async: true
+
+  alias Parser.Grid
+
+  @example """
+  30373
+  25512
+  65332
+  33549
+  35390
+  """
+
+  describe "parse_grid" do
+    test "captures rows and columns" do
+      assert %Grid{xs: xs, ys: ys} =
+               @example |> String.split("\n", trim: true) |> Parser.parse_grid()
+
+      assert Map.fetch!(xs, 0) == [3, 2, 6, 3, 3]
+      assert Map.fetch!(xs, 4) == [3, 2, 2, 9, 0]
+      assert Map.fetch!(ys, 0) == [3, 0, 3, 7, 3]
+      assert Map.fetch!(ys, 4) == [3, 5, 3, 9, 0]
+    end
+
+    test "captures width and height" do
+      assert %Grid{height: 5, width: 5} =
+               @example |> String.split("\n", trim: true) |> Parser.parse_grid()
+    end
+  end
+end
 ```
 
 ```elixir
@@ -195,13 +260,46 @@ end
 ```
 
 ```elixir
-# ExUnit.configure(trace: true)
-ExUnit.configure(timeout: 5_000)
-ExUnit.run()
+defmodule Part2.Test do
+  use ExUnit.Case, async: true
+
+  @example """
+  30373
+  25512
+  65332
+  33549
+  35390
+  """
+
+  setup do
+    %{grid: @example |> String.split("\n", trim: true) |> Parser.parse_grid()}
+  end
+
+  describe "viewing_distance" do
+    test "matches example value", %{grid: grid} do
+      assert Part2.viewing_distance(grid, 2, 1, :up) == 1
+      assert Part2.viewing_distance(grid, 2, 1, :right) == 2
+      assert Part2.viewing_distance(grid, 2, 1, :down) == 2
+      assert Part2.viewing_distance(grid, 2, 1, :left) == 1
+
+      assert Part2.viewing_distance(grid, 2, 3, :up) == 2
+      assert Part2.viewing_distance(grid, 2, 3, :right) == 2
+      assert Part2.viewing_distance(grid, 2, 3, :down) == 1
+      assert Part2.viewing_distance(grid, 2, 3, :left) == 2
+    end
+  end
+
+  describe "scenic_score" do
+    test "matches example value", %{grid: grid} do
+      assert Part2.scenic_score(grid, 2, 1) == 4
+      assert Part2.scenic_score(grid, 2, 3) == 8
+    end
+  end
+end
 ```
 
 ```elixir
-input
-|> Parser.parse_grid()
-|> Part1.count_visible_trees()
+# ExUnit.configure(trace: true)
+ExUnit.configure(timeout: 5_000)
+ExUnit.run()
 ```
