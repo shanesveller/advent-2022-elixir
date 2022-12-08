@@ -1,0 +1,207 @@
+# 2022-08
+
+```elixir
+Mix.install([:kino])
+```
+
+## Input
+
+```elixir
+input =
+  "2022-08.input"
+  |> Path.expand(__DIR__)
+  |> File.read!()
+  |> String.split("\n", trim: true)
+```
+
+```elixir
+defmodule Parser do
+  defmodule Grid do
+    defstruct [:xs, :ys, :height, :width]
+  end
+
+  def parse_grid(input) do
+    {xs, ys} =
+      for {line, y} <- Stream.with_index(input),
+          {char, x} <- Stream.with_index(String.graphemes(line)),
+          char != "\n",
+          # {xs, ys}
+          reduce: {%{}, %{}} do
+        acc ->
+          digit = String.to_integer(char)
+
+          # We consider each row and column in forward and reverse order,
+          # so no need to :lists.reverse() these as a final step
+          acc
+          |> update_in([Access.elem(0), Access.key(x, [])], &[digit | &1])
+          |> update_in([Access.elem(1), Access.key(y, [])], &[digit | &1])
+      end
+
+    xs = Map.new(xs, fn {x, col} -> {x, :lists.reverse(col)} end)
+    ys = Map.new(ys, fn {y, row} -> {y, :lists.reverse(row)} end)
+
+    height = map_size(ys)
+    width = map_size(xs)
+
+    %Grid{xs: xs, ys: ys, height: height, width: width}
+  end
+end
+```
+
+```elixir
+ExUnit.start(autorun: false)
+```
+
+```elixir
+defmodule Parser.Test do
+  use ExUnit.Case, async: true
+
+  alias Parser.Grid
+
+  @example """
+  30373
+  25512
+  65332
+  33549
+  35390
+  """
+
+  describe "parse_grid" do
+    test "captures rows and columns" do
+      assert %Grid{xs: xs, ys: ys} =
+               @example |> String.split("\n", trim: true) |> Parser.parse_grid()
+
+      assert Map.fetch!(xs, 0) == [3, 2, 6, 3, 3]
+      assert Map.fetch!(xs, 4) == [3, 2, 2, 9, 0]
+      assert Map.fetch!(ys, 0) == [3, 0, 3, 7, 3]
+      assert Map.fetch!(ys, 4) == [3, 5, 3, 9, 0]
+    end
+
+    test "captures width and height" do
+      assert %Grid{height: 5, width: 5} =
+               @example |> String.split("\n", trim: true) |> Parser.parse_grid()
+    end
+  end
+end
+```
+
+<!-- livebook:{"branch_parent_index":0} -->
+
+## Part 1
+
+```elixir
+defmodule Part1 do
+  alias Parser.Grid
+
+  def count_visible_edge(%Grid{height: height, width: width}) do
+    # Corners aren't counted twice
+    width * 2 + (height - 2) * 2
+  end
+
+  def visible_from_edge(sequence) do
+    forward = do_visible_from_edge(sequence)
+    backward = sequence |> :lists.reverse() |> do_visible_from_edge() |> :lists.reverse()
+    forward |> Enum.zip(backward) |> Enum.map(fn {f, b} -> f or b end)
+  end
+
+  def do_visible_from_edge(sequence) do
+    sequence
+    |> Enum.reduce({_elems = [], _max = 0}, fn
+      elem, {elems, max} when elem > max -> {[true | elems], elem}
+      _elem, {elems, max} -> {[false | elems], max}
+    end)
+    |> elem(0)
+    |> :lists.reverse()
+  end
+
+  def count_visible_inner(%Grid{xs: xs, ys: ys, width: width, height: height}) do
+    row_vis =
+      for {x, col} <- xs,
+          {visible, y} <- col |> visible_from_edge() |> Stream.with_index(),
+          visible,
+          x not in [0, width - 1],
+          y not in [0, height - 1],
+          reduce: MapSet.new() do
+        acc -> MapSet.put(acc, {x, y})
+      end
+
+    col_vis =
+      for {y, row} <- ys,
+          {visible, x} <- row |> visible_from_edge() |> Stream.with_index(),
+          visible,
+          x not in [0, width - 1],
+          y not in [0, height - 1],
+          reduce: MapSet.new() do
+        acc -> MapSet.put(acc, {x, y})
+      end
+
+    row_vis
+    |> MapSet.union(col_vis)
+    |> MapSet.size()
+  end
+
+  def count_visible_trees(%Grid{} = grid) do
+    count_visible_inner(grid) + count_visible_edge(grid)
+  end
+
+  def maybe_reverse(list, pred)
+  def maybe_reverse(list, false), do: list
+  def maybe_reverse(list, true), do: :lists.reverse(list)
+end
+```
+
+```elixir
+sequence = [3, 0, 3, 7, 3]
+sequence = [3, 7, 3, 0, 3]
+
+sequence
+|> Enum.reduce({_elems = [], _max = 0}, fn
+  elem, {elems, max} when elem > max -> {[true | elems], elem}
+  _elem, {elems, max} -> {[false | elems], max}
+end)
+|> elem(0)
+|> :lists.reverse()
+```
+
+```elixir
+defmodule Part1.Test do
+  use ExUnit.Case, async: true
+
+  @example """
+  30373
+  25512
+  65332
+  33549
+  35390
+  """
+
+  describe "visible_from_edge" do
+    test "checks bidirectionally" do
+      assert Part1.visible_from_edge([3, 0, 3, 7, 3]) == [true, false, false, true, true]
+      assert Part1.visible_from_edge([2, 5, 5, 1, 2]) == [true, true, true, false, true]
+    end
+  end
+
+  describe "count_visible_trees" do
+    test "matches supplied example's answer" do
+      grid = @example |> String.split("\n", trim: true) |> Parser.parse_grid()
+
+      assert Part1.count_visible_edge(grid) == 16
+      assert Part1.count_visible_inner(grid) == 5
+      assert Part1.count_visible_trees(grid) == 16 + 5
+    end
+  end
+end
+```
+
+```elixir
+# ExUnit.configure(trace: true)
+ExUnit.configure(timeout: 5_000)
+ExUnit.run()
+```
+
+```elixir
+input
+|> Parser.parse_grid()
+|> Part1.count_visible_trees()
+```
